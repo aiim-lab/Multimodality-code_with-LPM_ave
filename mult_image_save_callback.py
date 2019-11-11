@@ -65,7 +65,7 @@ class ImageSaveCallback(Callback):
 
         for sl_id in slice_ids:
             rows = [
-                np.concatenate([x_vol[xi][sl_id, 0] for xi in range(num_inputs)] + 2 * [np.zeros(im_shape)], axis=1)]
+                np.concatenate([(x_vol[xi][sl_id, 0]/np.max(x_vol[xi][sl_id, 0])) for xi in range(num_inputs)] + 2 * [np.zeros(im_shape)], axis=1)]
             for yi, y in enumerate(y_vol):
                 # outputs in the form of em_0_dec_VFlair, em_1_dec_VFlair, ..., em_0_dec_T1, ...
                 z_idx = [outi for outi, out in enumerate(self.model.outputs) if self.output_modalities[yi] in out.name]
@@ -100,15 +100,15 @@ class ImageSaveCallback(Callback):
         # saves examples for some layers of the 0th training and 0th validation volumes
 
         if img_size == 'small':
-            slice_ids = [61,63,65,67,69, 71,73,75,77]
+            slice_ids = [1,3,5,7,9]
         elif img_size == 'big':
-            slice_ids = [60,62,64,66,68, 70,72,74,76]
+            slice_ids = [2,4,6,8]
         else:
             raise Exception('Illegal value for img_size ', img_size)
 
         fn = self.folder_name + '/%sres_training' % name_prefix
         self.saveImage(0, slice_ids, fn + '_0', self.train_inputs, self.train_outputs)
-        self.saveImage(17, [72, 96], fn + '_17', self.train_inputs, self.train_outputs)
+        self.saveImage(17, slice_ids, fn + '_17', self.train_inputs, self.train_outputs)
 
         fn = self.folder_name + '/%sres_validation' % name_prefix
         self.saveImage(0, slice_ids, fn + '_0', self.val_inputs, self.val_outputs)
@@ -120,7 +120,7 @@ class ImageSaveCallback(Callback):
         # save the model:
         if logs is None:
             logs = {}
-        #self.model.save(self.folder_name + '/model')
+        self.model.save(self.folder_name + '/model')
         #self.model.save(self.folder_name + '/model_%d' % epoch)
         for i in range(0, epoch - 2):
             if os.path.exists(self.folder_name + '/model_%d' % i):

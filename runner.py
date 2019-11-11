@@ -3,16 +3,18 @@ import traceback
 import scipy
 import numpy as np
 import json
+import nibabel as nib
 from keras.callbacks import EarlyStopping
 from model import Multimodel
 from mult_image_save_callback import ImageSaveCallback
 from keras.callbacks import TensorBoard
 from time import time
-#from error_metrics import ErrorMetrics
+from error_metrics import ErrorMetrics
+
 
 
 class Experiment(object):
-    def __init__(self, input_modalities, output_weights, folder_name, data, latent_dim=4,
+    def __init__(self, input_modalities, output_weights, folder_name, data, latent_dim=4,spatial_transformer= True,
                  common_merge='max', ind_outs=True, fuse_outs=True):
         self.input_modalities = input_modalities
         self.output_weights = output_weights
@@ -21,6 +23,7 @@ class Experiment(object):
         self.folder_name = folder_name
         self.data = data
         self.common_merge = common_merge
+        self.spatial_transformer = spatial_transformer
         self.ind_outs = ind_outs
         self.fuse_outs = fuse_outs
         #assert ind_outs or fuse_outs
@@ -29,10 +32,10 @@ class Experiment(object):
     def create_model(self):
         print('Creating model...')
         mod = self.input_modalities[0]
-        chn = self.data.select_for_ids(mod, [0]).shape
+        chn = self.data.select_for_ids(mod, [0]).shape[1]
         print self.data.select_for_ids(mod, [0]).shape
-        print 'Channels: %d' % chn[0]
-        self.mm = Multimodel(self.input_modalities, self.output_modalities, self.output_weights, self.latent_dim, chn, self.common_merge, self.ind_outs, self.fuse_outs)
+        print 'Channels: %d' % chn
+        self.mm = Multimodel(self.input_modalities, self.output_modalities, self.output_weights, self.latent_dim, chn, self.spatial_transformer, self.common_merge, self.ind_outs, self.fuse_outs)
         self.mm.build()
 
     def save(self, folder_name):
@@ -61,12 +64,12 @@ class Experiment(object):
             except Exception:
                 traceback.print_exc()
 
-            # try:
-            #     self.test_at_split(split_dict, folder_split)
-            # except Exception:
-            #     traceback.print_exc()
+            try:
+                self.test_at_split(split_dict, folder_split)
+            except Exception:
+                traceback.print_exc()
 
-            #self.save(folder_split)
+            self.save(folder_split)
 
     def run_at_split(self, split_dict, folder_split, model=None):
         ids_train = split_dict['train']
@@ -135,7 +138,7 @@ class Experiment(object):
         all_ids = sorted(ids_train + ids_valid + ids_test)
         num_vols = len(all_ids)
 
-        metrics = ['MSE_NBG', 'MSE', 'SSIM_NBG', 'PSNR_NBG', 'SSIM', 'PSNR', 'MSE_NBG_AVG_EMB']
+        metrics = ['MSE_NBG', 'MSE', 'SSIM_NBG', 'PSNR_NBG', 'SSIM', 'PSNR','DICE', 'DICE_NBG','MSE_NBG_AVG_EMB']
 
         print('testing model on all volumes...')
 
@@ -145,7 +148,7 @@ class Experiment(object):
             print self.mm.num_emb
             files = {}
             for mod in self.output_modalities:
-                csv_header = '#,' + ','.join(metrics[:-1]) + ', volume_type, MSE_NBG_AVG_EMB\n'
+                csv_header = '#,' + ','.join(metrics[:-1]) + ', volume_type,MSE_NBG_AVG_EMB\n'
                 csv_file = folder_split + '/individual_results_emb_' + str(emb) + '_mod_' + mod + '.csv'
                 fd = open(csv_file, "w")
                 fd.write(csv_header)
@@ -165,6 +168,12 @@ class Experiment(object):
             X = [self.data.select_for_ids(mod, [vol_num]) for mod in self.input_modalities]
             print [str(mod) for mod in self.input_modalities]
             Z = self.mm.model.predict(X)
+            
+            for i in range(len(Z)):
+                saved_nift_for_dicecalculation= nib.Nifti1Image(np.swapaxes(Z[i],1,3),affine=np.eye(4))               
+                nib.save(saved_nift_for_dicecalculation, os.path.join('split0','for_dice{}'.format(i)))
+
+
 
             # compute emb average
             err_avg_emb = self.output_mean(Z, folder_split, vol_num)
@@ -205,8 +214,8 @@ class Experiment(object):
         cb_Y = [self.data.select_for_ids(mod, all_ids, as_array=False) for mod in self.output_modalities]
         cb = ImageSaveCallback(cb_X, cb_Y, None, None, folder_split, self.output_modalities)
         cb.model = self.mm.model
-        for vol in ids_test + [1, 8, 12, 13]:
-            cb.saveImage(vol, [70, 80, 90, 100], folder_split + '/test_im' + str(vol), cb_X, cb_Y)
+        for vol in ids_test + [1, 7, 8]:
+            cb.saveImage(vol, [5, 8], folder_split + '/test_im' + str(vol), cb_X, cb_Y)
 
     def output_mean(self, z_vol, folder_split, vol_num):
         err_avg_emb = dict()
@@ -220,8 +229,8 @@ class Experiment(object):
                 y_truth_mod = y_truth_mod[:, sh[1] / 2:sh[1] / 2 + 1]
 
             y_synth_mod = np.mean(y_synth, axis=0)
-            scipy.misc.imsave(folder_split + '/avg_emb_ims/im_avg_emb' + str(vol_num) + '_' + str(90) + '.png',
-                              np.concatenate([y_synth_mod[90], y_truth_mod[90, 0]], axis=1))
+            scipy.misc.imsave(folder_split + '/avg_emb_ims/im_avg_emb' + str(vol_num) + '_' + str(7) + '.png',
+                              np.concatenate([y_synth_mod[7], y_truth_mod[7, 0]], axis=1))
             err = ErrorMetrics(np.expand_dims(y_synth_mod, axis=1), y_truth_mod)
             err_avg_emb[y] = err
         return err_avg_emb

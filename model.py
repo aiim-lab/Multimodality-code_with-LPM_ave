@@ -17,6 +17,9 @@ from keras.layers.core import Dense, Activation, Flatten
 from keras.activations import sigmoid
 import tensorflow as tf
 from keras.layers import Dropout
+# from SpatialTransformerLayer import SpatialTransformer
+from SpatialTransformerLayer import SpatialTransformer
+
 
 #from __future__ import absolute_import
 #from __future__ import division
@@ -40,19 +43,22 @@ class Multimodel(object):
     m = Multimodel(['T1','T2'], ['DWI', 'VFlair'], {'DWI': 1.0, 'VFlair': 1.0, 'concat': 1.0}, 16, 1, True, 'max', True, True)
     m.build()
     '''
-    def __init__(self, input_modalities, output_modalities, output_weights, latent_dim, img_size,
-                 common_merge, ind_outs, fuse_outs):
+    def __init__(self, input_modalities, output_modalities, output_weights, latent_dim, channels, spatial_transformer,common_merge, ind_outs, fuse_outs):
         self.input_modalities = input_modalities
         self.output_modalities = output_modalities
         self.latent_dim = latent_dim
-        self.channels = img_size[1]
+        # self.channels = img_size[1]
+        self.channels = channels
         self.common_merge = common_merge
         self.output_weights = output_weights
         self.ind_outs = ind_outs
         self.fuse_outs = fuse_outs
+        self.spatial_transformer = spatial_transformer
         self.num_emb = len(input_modalities) + 1
-
-        self.H, self.W = img_size[2], img_size[3]
+        if spatial_transformer:
+            self.H, self.W = 256, 256
+        else:
+            self.H, self.W = None, None
 
     def encoder_maker(self, modality):
         filter_size = 3
@@ -216,6 +222,32 @@ class Multimodel(object):
         ind_emb = [lr for (input, lr) in encoders]
         self.org_ind_emb = [lr for (input, lr) in encoders]
         self.inputs = [input for (input, lr) in encoders]
+
+        #apply spatial transformer
+        # if self.spatial_transformer:
+        #     print 'Adding a spatial transformer layer'
+        #     input_shape = (self.latent_dim, self.H, self.W)
+        #     tpn = tpn_maker(input_shape)
+        #     mod1 = ind_emb[0]
+        #     aligned_ind_emb = [mod1]
+        #     for mod in ind_emb[1:]:
+        #         aligned_mod = merge([tpn([mod1, mod]), mod], mode=STMerge, output_shape=input_shape)
+        #         aligned_ind_emb.append(aligned_mod)
+        #     ind_emb = aligned_ind_emb
+
+        if self.spatial_transformer:
+            print 'Adding a spatial transformer layer'
+            input_shape = (self.latent_dim, self.H, self.W)
+            # input_shape = (self.H, self.W, self.latent_dim)
+            tpn = tpn_maker(input_shape)
+            mod1 = ind_emb[0]
+            # mod1= K.permute_dimensions(ind_emb[0],(0,2,3,1))
+            aligned_ind_emb = [mod1]
+            for mod in ind_emb[1:]:
+                aligned_mod = merge([tpn([mod1, mod]), mod], mode=STMerge, output_shape=input_shape)
+                aligned_ind_emb.append(aligned_mod)
+            ind_emb = aligned_ind_emb
+
         
 
         if self.common_merge == 'hemis':
@@ -246,11 +278,14 @@ class Multimodel(object):
         out_dict = {}
         out_dict['em_0_dec_FLAIR'] = mae2
         out_dict['em_1_dec_FLAIR'] = mae2
+        # out_dict['em_2_dec_FLAIR'] = mae
         out_dict['em_2_dec_FLAIR'] = mae2
 
         out_dict['em_0_dec_MASK'] = dice_coef_loss
         out_dict['em_1_dec_MASK'] = dice_coef_loss
-        out_dict['em_2_dec_MASK'] = dice_coef_loss        
+        # out_dict['em_2_dec_MASK'] = dice_coef_loss_adj
+        out_dict['em_2_dec_MASK'] = dice_coef_loss
+
         get_indiv_weight = lambda mod: self.output_weights[mod] if self.ind_outs else 0.0
         get_fused_weight = lambda mod: self.output_weights[mod] if self.fuse_outs else 0.0
         loss_weights = {}
@@ -271,10 +306,9 @@ class Multimodel(object):
 
         print 'output dict: ', out_dict
         print 'loss weights: ', loss_weights
-
         self.model = Model(input=self.inputs, output=outputs)
         self.model.summary()
-        self.model.compile(optimizer=[Adam(lr=0.0001),Adam(lr=0.001)], loss=out_dict, loss_weights=loss_weights)
+        self.model.compile(optimizer=Adam(lr=0.0001), loss=out_dict, loss_weights=loss_weights)
 
     def get_inputs(self, modalities):
         return [self.inputs[self.input_modalities.index(mod)] for mod in modalities]
@@ -470,7 +504,8 @@ def new_flatten(emb, name=''):
     return l
 
 def mae(y_true, y_pred):
-    return K.mean(K.abs(y_pred - y_true))
+    return 100*K.mean(K.abs(y_pred - y_true))
+#weighted mae2 for using with segmentation
 def mae2(y_true, y_pred):
     return 1000*K.mean(K.abs(y_pred - y_true))
 def tp(y_true, y_pred):
@@ -484,9 +519,9 @@ def challenge_mae_coef(y_true, y_pred, smooth=1e-7):
     Dice coefficient for 10 categories. Ignores background pixel label 0
     Pass to model as metric during compile statement
     '''
-    y_true_f = K.flatten(K.one_hot(K.cast(y_true, 'int32'), num_classes=2)[...,1:])
+    y_true_f = K.flatten(K.one_hot(K.cast(y_true, 'int32'), num_classes=2)[...,0])
     # y_true_f = K.flatten(y_true)
-    y_pred_f = K.flatten(K.permute_dimensions(y_pred,(0,2,3,1))[...,1:])
+    y_pred_f = K.flatten(K.permute_dimensions(y_pred,(0,2,3,1))[...,1])
     return K.mean(K.sum(K.abs(y_pred_f - y_true_f), axis=-1))
 
 def tn(y_true, y_pred):
@@ -518,13 +553,20 @@ def dice_coef(y_true, y_pred, smooth=1):
     ref: https://arxiv.org/pdf/1606.04797v1.pdf
     """
     y_true_f = K.flatten(K.one_hot(K.cast(y_true, 'int32'), num_classes=2)[...,1:])
+    
+    
     # y_true_f = K.flatten(y_true)
     y_pred_f = K.flatten(K.permute_dimensions(y_pred,(0,2,3,1))[...,1:])
     intersection = K.sum(K.abs(y_true_f * y_pred_f), axis=-1)
     return (2.0*intersection + smooth) / (K.sum(K.square(y_true_f),-1) + K.sum(K.square(y_pred_f),-1) + smooth)
 
+
 def dice_coef_loss(y_true, y_pred):
-    return 100*(1-dice_coef(y_true, y_pred))
+    return 10000*(1-dice_coef(y_true, y_pred))
+
+def dice_coef_loss_adj(y_true, y_pred):
+    return 10000*(1-dice_coef(y_true, y_pred))
+
 
 def var(embeddings):
     emb = embeddings[0]
@@ -545,3 +587,83 @@ def ave(embeddings):
 def zeros_for_var(emb):
     l = Lambda(lambda x: K.zeros_like(x))(emb)
     return l
+
+# def tpn_maker(input_shape):
+#     # initial weights
+#     b = np.zeros((2, 3), dtype='float32')
+#     b[0, 0] = 1
+#     b[1, 1] = 1
+#     W = np.zeros((50, 6), dtype='float32')
+#     weights = [W, b.flatten()]
+
+#     # input_shape = (4, 256, 256)
+
+#     target_input = Input(shape=input_shape)
+#     input = Input(shape=input_shape)
+
+#     stacked = merge([target_input, input], mode='concat')
+
+#     mp1 = MaxPooling2D(pool_size=(2, 2))(stacked)
+#     conv1 = Conv2D(8, 5)(mp1)
+#     mp2 = MaxPooling2D(pool_size=(2, 2))(conv1)
+#     conv2 = Conv2D(8, 5)(mp2)
+#     mp3 = MaxPooling2D(pool_size=(2, 2))(conv2)
+#     conv3 = Conv2D(8, 5)(mp3)
+#     flt = Flatten()(conv3)
+#     d50 = Dense(50)(flt)
+#     act = Activation('relu')(d50)
+#     # theta = Dense(6, weights=weights)(act)
+#     theta = Dense(6, weights=weights)(act)
+
+#     model = Model(input=[target_input, input], output=theta)
+#     return model
+
+def tpn_maker(input_shape):
+    # initial weights
+    # input_shape=np.asarray(input_shape)
+    # idx=[1,2,0]
+    # input_shape[idx]
+    b = np.zeros((2, 3), dtype='float32')
+    b[0, 0] = 1
+    b[1, 1] = 1
+    W = np.zeros((50, 6), dtype='float32')
+    weights = [W, b.flatten()]
+
+    # input_shape = (4, 256, 256)
+
+    target_input = Input(shape=input_shape)
+    input = Input(shape=input_shape)
+
+    stacked = merge([target_input, input], mode='concat')
+
+    mp1 = MaxPooling2D(pool_size=(2, 2))(stacked)
+    conv1 = Conv2D(8, 5)(mp1)
+    mp2 = MaxPooling2D(pool_size=(2, 2))(conv1)
+    conv2 = Conv2D(8, 5)(mp2)
+    mp3 = MaxPooling2D(pool_size=(2, 2))(conv2)
+    conv3 = Conv2D(8, 5)(mp3)
+    flt = Flatten()(conv3)
+    d50 = Dense(50)(flt)
+    act = Activation('relu')(d50)
+    # theta = Dense(6, weights=weights)(act)
+    theta = Dense(6, weights=weights)(act)
+
+    model = Model(input=[target_input, input], output=theta)
+    return model
+
+
+# def STMerge(to_merge):
+#     theta, input = to_merge
+#     # theta.reshape((input.shape[0], 2, 3))
+#     theta= K.reshape(theta,(-1, 2, 3))
+#     return Spatial_Transformer._transform(theta, input, 1)
+
+def STMerge(tensors):
+    transformation,X = tensors
+    # theta.reshape((input.shape[0], 2, 3))
+    transformation= K.reshape(transformation,(-1, 2, 3))
+    output=SpatialTransformer._transform(transformation,X,1)
+    return output
+    # instance= Spatial_Transformer()
+    # return instance._transform(X, transformation, (4,256,256))
+
