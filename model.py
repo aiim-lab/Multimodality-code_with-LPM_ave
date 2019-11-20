@@ -10,7 +10,7 @@ sys.setrecursionlimit(10000)
 from keras.optimizers import Adam
 from keras.models import Model
 from keras.layers import Input, merge, Lambda, LeakyReLU, MaxPooling2D,concatenate, Concatenate, maximum,average,add,Reshape, Multiply, Add
-
+from keras.losses import binary_crossentropy
 from keras.layers.convolutional import Conv2D, UpSampling2D, Conv3D
 from keras import backend as K
 from keras.layers.core import Dense, Activation, Flatten
@@ -116,7 +116,7 @@ class Multimodel(object):
         conv = Conv2D(32, filter_size, padding='same', activation='relu', name='dec_' + modality + '_conv4')(conv)
         skip = concatenate([skip, conv], axis=1, name='dec_' + modality + '_skip2')
         if modality == 'MASK':
-            conv = Conv2D(2, 1, padding='same', name='dec_' + modality + '_conv5')(skip)
+            conv = Conv2D(1, 1,activation= 'sigmoid', padding='same', name='dec_' + modality + '_conv5')(skip)
         else:
             conv = Conv2D(1, 1, padding='same', activation='relu', name='dec_' + modality + '_conv5')(skip)
         model = Model(inputs=inp, outputs=conv, name='decoder_' + modality)
@@ -278,13 +278,17 @@ class Multimodel(object):
         out_dict = {}
         out_dict['em_0_dec_FLAIR'] = mae2
         out_dict['em_1_dec_FLAIR'] = mae2
-        # out_dict['em_2_dec_FLAIR'] = mae
         out_dict['em_2_dec_FLAIR'] = mae2
+        # out_dict['em_3_dec_FLAIR'] = mae
 
-        out_dict['em_0_dec_MASK'] = dice_coef_loss
-        out_dict['em_1_dec_MASK'] = dice_coef_loss
+        # out_dict['em_0_dec_MASK'] = dice_coef_loss
+        # out_dict['em_1_dec_MASK'] = dice_coef_loss
         # out_dict['em_2_dec_MASK'] = dice_coef_loss_adj
-        out_dict['em_2_dec_MASK'] = dice_coef_loss
+        # out_dict['em_3_dec_MASK'] = dice_coef_loss
+        # out_dict['em_0_dec_MASK'] = dice_loss
+        # out_dict['em_1_dec_MASK'] = dice_loss
+        # out_dict['em_2_dec_MASK'] = dice_loss
+        # out_dict['em_3_dec_MASK'] = dice_loss_mask
 
         get_indiv_weight = lambda mod: self.output_weights[mod] if self.ind_outs else 0.0
         get_fused_weight = lambda mod: self.output_weights[mod] if self.fuse_outs else 0.0
@@ -504,7 +508,7 @@ def new_flatten(emb, name=''):
     return l
 
 def mae(y_true, y_pred):
-    return 100*K.mean(K.abs(y_pred - y_true))
+    return 1000*K.mean(K.abs(y_pred - y_true))
 #weighted mae2 for using with segmentation
 def mae2(y_true, y_pred):
     return 1000*K.mean(K.abs(y_pred - y_true))
@@ -566,6 +570,30 @@ def dice_coef_loss(y_true, y_pred):
 
 def dice_coef_loss_adj(y_true, y_pred):
     return 10000*(1-dice_coef(y_true, y_pred))
+
+def dsc(y_true, y_pred):
+    smooth = 1.
+    y_true_f = K.flatten(y_true)
+    y_pred_f = K.flatten(y_pred)
+    intersection = K.sum(y_true_f * y_pred_f)
+    score = (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+    return score
+
+def dice_loss(y_true, y_pred):
+    loss = 1 - dsc(y_true, y_pred)
+    return 200*loss
+
+def dice_loss_mask(y_true, y_pred):
+    loss = 1 - dsc(y_true, y_pred)
+    return 200*loss
+
+def bce_dice_loss(y_true, y_pred):
+    loss = binary_crossentropy(y_true, y_pred) + dice_loss(y_true, y_pred)
+    return 100*loss
+
+def bce_dice_loss_mask(y_true, y_pred):
+    loss = binary_crossentropy(y_true, y_pred) + dice_loss(y_true, y_pred)
+    return 100*loss
 
 
 def var(embeddings):

@@ -41,7 +41,7 @@ class Data(object):
     def __init__(self, data_folder, modalities_to_load=None, trim_and_downsample=False):
         self.data_folder = data_folder[:-1] if data_folder.endswith('/') else data_folder
 
-        self.num_vols =270
+        self.num_vols =20
         self.splits_file = './splits.txt'
 
         if modalities_to_load is not None:

@@ -5,62 +5,75 @@ from skimage.measure import compare_psnr as psnr
 from scipy.spatial.distance import directed_hausdorff
 import mpu.ml
 import tensorflow.keras.backend as K
-from model import dice_coef
-def dice(vol_t,vol_s):
-    """
-    Computes the generalized Dice coefficient
-    ----------
-    im1 : array-like, bool
-        Any array of arbitrary size. If not boolean, will be converted.
-    im2 : array-like, bool
-        Any other array of identical size. If not boolean, will be converted.
-    Returns
-    -------
-    dice : float
-        Dice coefficient as a float on range [0,1].
-        Maximum similarity = 1
-        No similarity = 0
-    """
 
-    vol_s= np.array(vol_s).astype(np.bool)
-    vol_t= np.array(vol_t).astype(np.bool)
 
-    if vol_s.shape != vol_t.shape:
-        raise ValueError ("Shape mismatch")
 
-    #Compute Dice coefficient
-    intersection= np.logical_and(vol_s,vol_t)
+# def computeDice(vol_s, vol_t):
+    
+#     vol_s= vol_s>0.5
 
-    return 2. * intersection.sum() / (vol_s.sum() + vol_t.sum())
-# def one_hot(a, num_classes):
-#     return np.squeeze(np.eye(num_classes)[a.reshape(-1)])
-# def dice(vol_t, vol_s):
+#     pred = np.ndarray.flatten(np.clip(vol_s,0,1))
+#     gt = np.ndarray.flatten(np.clip(vol_t,0,1))
+#     intersection = np.sum(pred * gt) 
+#     union = np.sum(pred) + np.sum(gt)   
+#     return np.round((2 * intersection)/(union),decimals=5)
+
+# def computeDice(vol_s, vol_t):
+#     """ Returns
+#     -------
+#     DiceArray : floats array
+          
+#           Dice coefficient as a float on range [0,1].
+#           Maximum similarity = 1
+#           No similarity = 0 """
+          
+#     n_classes = int( np.max(vol_t) + 1)
+   
+#     DiceArray = []
+    
+    
+#     for c_i in xrange(1,n_classes):
+#         idx_Auto = np.where(vol_s.flatten() == c_i)[0]
+#         idx_GT   = np.where(vol_t.flatten() == c_i)[0]
+        
+#         autoArray = np.zeros(vol_s.size,dtype=np.bool)
+#         autoArray[idx_Auto] = 1
+        
+#         gtArray = np.zeros(vol_s.size,dtype=np.bool)
+#         gtArray[idx_GT] = 1
+        
+#         dsc = dice(autoArray, gtArray)
+        
+#         #dice = np.sum(autoSeg[groundTruth==c_i])*2.0 / (np.sum(autoSeg) + np.sum(groundTruth))
+#         DiceArray.append(dsc)
+        
+#     return DiceArray
+
+
+def dice(vol_s,vol_t):
 #     """
-#     Dice = (2*|X & Y|)/ (|X|+ |Y|)
-#          =  2*sum(|A*B|)/(sum(A^2)+sum(B^2))
-#     ref: https://arxiv.org/pdf/1606.04797v1.pdf
-
+    
+#     im1 : array-like, bool
+#         Any array of arbitrary size. If not boolean, will be converted.
+#     im2 : array-like, bool
+#         Any other array of identical size. If not boolean, will be converted.
+#     Returns
+#     -------
+#     dice : float
+#     Dice coefficient as a float on range [0,1].
+#         Maximum similarity = 1
+#         No similarity = 0
 #     """
-#     a= K.constant(vol_t)
-#     b=K.constant(vol_s)
-#     y_true_f = K.flatten(K.one_hot(K.cast(a, 'int32'), num_classes=2)[...,0])
     
-    
-#     # y_true_f = K.flatten(y_true)
-#     y_pred_f = K.flatten(K.permute_dimensions(b,(0,2,3,1))[...,0])
-#     intersection = K.sum(K.abs(y_true_f * y_pred_f), axis=-1)
-#     z= (2.0*intersection + smooth) / (K.sum(K.square(y_true_f),-1) + K.sum(K.square(y_pred_f),-1) + smooth)
-#     return z
-    # vol_t= np.array(vol_t).astype(np.int)
-    # y_true_f= one_hot(vol_t,5)
-    # # y_true_f = mpu.ml.indices2one_hot((vol_t), nb_classes=2)[...,0]
-    # y_true_f_flattened= y_true_f.flatten()
-    
-    # y_pred_f = np.transpose(vol_s,(0,2,3,1))[...,0]
-    # y_pred_f_flattened= y_pred_f.flatten()
+    smooth = 1
+    pred = np.ndarray.flatten(np.clip(vol_s,0,1))
+    gt = np.ndarray.flatten(np.clip(vol_t,0,1))
+    intersection = np.sum(pred * gt) 
+    union = np.sum(pred) + np.sum(gt)   
+    return np.round((2 * intersection + smooth)/(union + smooth),decimals=5)
 
-    # intersection = np.sum(np.abs(y_true_f_flattened * y_pred_f_flattened), axis=-1)
-    # return (2.0*intersection) / (np.sum(np.square(y_true_f_flattened),-1) + np.sum(np.square(y_pred_f_flattened),-1))
+    
+
 
 def ErrorMetrics(vol_s, vol_t):
     # calculate various error metrics.
@@ -86,7 +99,7 @@ def ErrorMetrics(vol_s, vol_t):
     errors['SSIM'] = ssim(vol_t, vol_s)
     dr = np.max([vol_s.max(), vol_t.max()]) - np.min([vol_s.min(), vol_t.min()])
     errors['PSNR'] = psnr(vol_t, vol_s, data_range=dr)
-    errors['DICE']= dice(vol_t,vol_s)
+    errors['DICE']= dice(vol_s,vol_t)
 
   
 
@@ -102,6 +115,6 @@ def ErrorMetrics(vol_s, vol_t):
     vol_s_non_bg = vol_s[non_bg].flatten()
     vol_t_non_bg = vol_t[non_bg].flatten()
     errors['MSE_NBG'] = np.mean((vol_s_non_bg - vol_t_non_bg) ** 2.)
-    errors['DICE_NBG'] = dice(vol_t[non_bg], vol_s[non_bg])
+    errors['DICE_NBG'] = dice(vol_s[non_bg], vol_t[non_bg])
 
     return errors

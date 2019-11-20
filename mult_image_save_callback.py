@@ -66,6 +66,8 @@ class ImageSaveCallback(Callback):
         for sl_id in slice_ids:
             rows = [
                 np.concatenate([(x_vol[xi][sl_id, 0]/np.max(x_vol[xi][sl_id, 0])) for xi in range(num_inputs)] + 2 * [np.zeros(im_shape)], axis=1)]
+                # np.concatenate([x_vol[xi][sl_id, 0] for xi in range(num_inputs)] + 2 * [np.zeros(im_shape)], axis=1)]
+
             for yi, y in enumerate(y_vol):
                 # outputs in the form of em_0_dec_VFlair, em_1_dec_VFlair, ..., em_0_dec_T1, ...
                 z_idx = [outi for outi, out in enumerate(self.model.outputs) if self.output_modalities[yi] in out.name]

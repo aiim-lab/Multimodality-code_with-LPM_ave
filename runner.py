@@ -90,7 +90,7 @@ class Experiment(object):
         cb = ImageSaveCallback(cb_train_in, cb_train_out, cb_valid_in, cb_valid_out, folder_split,
                               self.output_modalities)
 
-        es = EarlyStopping(monitor='val_loss', min_delta=0.0000001, mode='min', patience=20)
+        es = EarlyStopping(monitor='val_loss', min_delta=0.0000001, mode='min', patience=50)
 
         train_in = [self.data.select_for_ids(mod, ids_train) for mod in self.input_modalities]
         valid_in = [self.data.select_for_ids(mod, ids_valid) for mod in self.input_modalities]
@@ -122,7 +122,7 @@ class Experiment(object):
 
         print('Fitting model...')
         tensorboard = TensorBoard(log_dir="logs/{}".format(time()))        
-        self.mm.model.fit(train_in, train_out, validation_data=(valid_in, valid_out), epochs=100, batch_size=1,
+        self.mm.model.fit(train_in, train_out, validation_data=(valid_in, valid_out), epochs=1, batch_size=10,
                         callbacks=[cb,es])
 # check the structure of initial_weights for 3D or 2D
         final_weights = [lay.get_weights() for lay in self.mm.model.layers]
@@ -202,8 +202,10 @@ class Experiment(object):
                         vol_type = 'training'
 
                     pattern = "%d" + ", %.3f" * (len(metrics) - 1) + ', %s, %.3f\n'
+                    # new_row = pattern % tuple([vol_num] + list([err[em] for em in metrics[:-1]]) + [vol_type] +
+                    #                           [err_avg_emb[y]['MSE_NBG'] 
                     new_row = pattern % tuple([vol_num] + list([err[em] for em in metrics[:-1]]) + [vol_type] +
-                                              [err_avg_emb[y]['MSE_NBG']])
+                                              [err_avg_emb[y]['MSE_NBG']])                         
                     files[y].write(new_row)
 
         for files in files_embs.values():

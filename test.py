@@ -3,12 +3,12 @@ from loader_multimodal import Data
 from model import Multimodel
 from runner import Experiment
 
-data = Data('./data/', modalities_to_load=['T1','T2','LPM','MASK'])
+data = Data('./data/', modalities_to_load=['T1','T2','MASK','FLAIR'])
 #for synthesis
 # data = Data('./data/', modalities_to_load=['T1','T2','FLAIR'])
 data.load()
-input_modalities= ['T1','T2','LPM']
-output_weights= {'FLAIR':1.0,'MASK':1.0}
+input_modalities= ['T1','T2','MASK']
+output_weights= {'FLAIR':1.0}
 # output_weights= {'FLAIR':1.0}
 exp = Experiment(input_modalities, output_weights, './', data, latent_dim=4, spatial_transformer= False, common_merge='ave', ind_outs=True, fuse_outs=True)
 exp.run(data)     
